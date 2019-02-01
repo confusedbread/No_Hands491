@@ -70,7 +70,10 @@ class CC_Pie():
         hyp_c_b = sqrt(hyp_c_a**2 + self.obj_radius**2)
 
         theta_a = atan(midy/midx)
-        theta_b = atan(self.obj_radius/hyp_c_b)
+        if midx < 0 :
+            theta_a = pi-theta_a
+
+        theta_b = atan(self.obj_radius/hyp_c_a)
  
         theta_r = theta_a + theta_b        
 
@@ -80,6 +83,7 @@ class CC_Pie():
     def calculate_circle(self):
         ph = (self.position.x, self.position.y)
         pm = (self.obj_x, self.obj_y)
+        rospy.loginfo("Arc Midpoint - ({},{})".format(self.obj_x,self.obj_y))
         pg = (self.goalx, self.goaly)
         self.circle_ = define_circle (ph, pm, pg)
         rospy.loginfo("Circle - x:{}, y:{}, r:{}".format(self.circle_.x,self.circle_.y,self.circle_.r))
@@ -94,7 +98,7 @@ class CC_Pie():
         theta_step = theta_a/self.num_steps
 
         theta_n = asin(abs(self.position.y - self.circle_.y)/self.circle_.r)
-
+        
         for i in range(1,self.num_steps):
             if self.circle_.x < self.position.x:
                 rospy.loginfo("Hello?")
