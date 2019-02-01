@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import rospy
-from math import pi, atan, sin, cos, sqrt
+from math import pi, atan, sin, cos, sqrt,asin
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist, PoseWithCovariance, TwistWithCovariance, Pose, Point, Quaternion
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
@@ -41,7 +41,8 @@ class CC_Pie():
         self.waypoints = []
         self.goalx = x
         self.goaly = y
-        self.num_steps = 3
+        self.num_steps = 20
+
 
         self.cmd_pub = rospy.Publisher('/cmd_vel',Twist,queue_size=10)
         self.traj = Twist()
@@ -70,7 +71,7 @@ class CC_Pie():
 
         theta_a = atan(midy/midx)
         theta_b = atan(self.obj_radius/hyp_c_b)
-
+ 
         theta_r = theta_a + theta_b        
 
         self.obj_y = hyp_c_b * sin(theta_r)
@@ -84,43 +85,78 @@ class CC_Pie():
         rospy.loginfo("Circle - x:{}, y:{}, r:{}".format(self.circle_.x,self.circle_.y,self.circle_.r))
 
     def step_sampling(self):
-        step_size_x = (self.goalx - self.position.x)/self.num_steps
-        step_size_y = (self.goaly - self.position.y)/self.num_steps
+        midx = (self.goalx + self.position.x)/2
+        midy = (self.goaly + self.position.y)/2
+        hyp_c_a = sqrt((midx-self.position.x)**2 + (midy-self.position.y)**2)
 
-        rospy.loginfo("X StepSize: {}".format(step_size_x))
-        rospy.loginfo("Y StepSize: {}".format(step_size_y))
+        theta_a = asin(hyp_c_a/self.circle_.r) * 2
 
-        tepx = self.position.x
-        tepy = self.position.y
+        theta_step = theta_a/self.num_steps
+
+        theta_n = asin(abs(self.position.y - self.circle_.y)/self.circle_.r)
 
         for i in range(1,self.num_steps):
-            #rospy.loginfo("{} -r {}".format(i,self.circle_.r))
-            #rospy.loginfo("{} : {}".format(self.goalx,self.goaly))
-            #rospy.loginfo("{} : {}".format((tepx+i*step_size_x),(tepy+i*step_size_y)))
-            x = (tepx+i*step_size_x)
-            if tepy > sqrt(self.circle_.r**2-(0-self.circle_.x)**2) + self.circle_.y:
-                y = -sqrt(self.circle_.r**2-(x - self.circle_.x)**2) + self.circle_.y
+            if self.circle_.x < self.position.x:
+                rospy.loginfo("Hello?")
+                x = self.circle_.r * cos((theta_n+theta_step*i))
+                
+                y = self.circle_.r * sin((theta_n+theta_step*i))
+                rospy.loginfo("{} ({},{})".format(i,x,y))
             else:
-                y = sqrt(self.circle_.r**2-(x - self.circle_.x)**2) + self.circle_.y
-            self.waypoints.append((x,y))
+                x = self.circle_.r * cos(pi-(theta_n+theta_step*i))
+                y = self.circle_.r * sin(pi-(theta_n+theta_step*i))
+            self.waypoints.append((x+self.circle_.x ,y+self.circle_.y))
 
-    def correct_orientation(self,waypoint):
-        rospy.loginfo("Correcting to ({},{})".format(waypoint[0],waypoint[1]))
+    def set_orientation(self,waypoint):
+        #rospy.loginfo("Correcting to ({},{})".format(waypoint[0],waypoint[1]))
 
         x_len = waypoint[0] - self.position.x
         y_len = waypoint[1] - self.position.y
 
-        oren_to_way = atan(y_len/x_len)
+        oren_to_way = (atan(y_len/x_len))
+        if x_len < 0 :
+            oren_to_way = oren_to_way + pi
 
-        rospy.loginfo("Current Yaw {} to Orientated Yaw {}".format(self.yaw,oren_to_way))
+        #rospy.loginfo("Current Yaw {} to Orientated Yaw {}".format(self.yaw,oren_to_way))
 
         if  abs(self.yaw - oren_to_way) < 0.05 :
             self.traj.angular.z = 0.0
         elif self.yaw < oren_to_way:
-            self.traj.linear.x = 0.0
+            #self.traj.linear.x = 0.0
             self.traj.angular.z = 0.3
         elif self.yaw > oren_to_way:
-            self.traj.linear.x = 0.0
+            self.traj.angular.z = -0.3
+            #self.traj.linear.x = 0.0
+            #self.traj.angular.z = -0.3
+        else:
+            rospy.loginfo("Wut?")
+
+        self.cmd_pub.publish(self.traj)
+
+        return self.traj.angular.z == 0.0
+
+    def correct_orientation(self,waypoint):
+        #rospy.loginfo("Correcting to ({},{})".format(waypoint[0],waypoint[1]))
+
+        x_len = waypoint[0] - self.position.x
+        y_len = waypoint[1] - self.position.y
+
+        oren_to_way = (atan(y_len/x_len))
+
+        if x_len < 0 :
+            oren_to_way = oren_to_way + pi
+
+        wumbo = self.traj.linear.x / self.circle_.r
+
+        #rospy.loginfo("Current Yaw {} to Orientated Yaw {}".format(self.yaw,oren_to_way))
+
+        if  abs(self.yaw - oren_to_way) < 0.05 :
+            self.traj.angular.z = 0.0
+        elif self.yaw < oren_to_way:
+            #self.traj.linear.x = 0.0
+            self.traj.angular.z = 0.3 
+        elif self.yaw > oren_to_way:
+            #self.traj.linear.x = 0.0
             self.traj.angular.z = -0.3
         else:
             rospy.loginfo("Wut?")
@@ -136,11 +172,10 @@ class CC_Pie():
 
         if abs(self.position.x - self.goalx) < 0.15  and abs(self.position.y - self.goaly) < 0.15 :
             self.traj.linear.x = 0.0
-        elif waypointx > self.position.x:
-            self.traj.linear.x = 0.3
+        elif waypointx > self.position.x : 
+            self.traj.linear.x = 0.2
         else:
-            self.traj.linear.x = -0.3
-        
+            self.traj.linear.x = 0.2
         self.cmd_pub.publish(self.traj)
 
     def baking_cake(self):
@@ -149,18 +184,21 @@ class CC_Pie():
         self.pre_calculate()
         cur_waypoint = self.waypoints[0]
         #rospy.loginfo("First WayPoint Set {},{}".format(cur_waypoint[0],cur_waypoint[1]))
-        while not self.correct_orientation(cur_waypoint):
+        while not self.set_orientation(cur_waypoint):
             pass
         rospy.loginfo("Orientated - Begin Arc Traversal")
+
         for i in range(0,len(self.waypoints)):
             rospy.loginfo("[{}] Waypoint - ({},{})".format(i,self.waypoints[i][0],self.waypoints[i][1]))
+        
         while not rospy.is_shutdown():
-            rospy.loginfo("Cur_Waypoint = ({},{})".format(cur_waypoint[0],cur_waypoint[1]))
-            rospy.loginfo("Cur_Position = ({},{})".format(self.position.x, self.position.y))
-            if self.correct_orientation(cur_waypoint):
+            #rospy.loginfo("Cur_Waypoint = ({},{})".format(cur_waypoint[0],cur_waypoint[1]))
+            #rospy.loginfo("Cur_Position = ({},{})".format(self.position.x, self.position.y))
+            
+            if(self.correct_orientation(cur_waypoint)):
                 self.travel_forward(cur_waypoint)
 
-            if abs(self.position.x - cur_waypoint[0]) > 0.02 and abs(self.position.y - cur_waypoint[1]) > 0.02:
+            if abs(self.position.x - cur_waypoint[0]) < 0.2 and abs(self.position.y - cur_waypoint[1]) < 0.2:
                 if len(self.waypoints) == 0:
                     cur_waypoint = (self.goalx,self.goaly)
                 else:
